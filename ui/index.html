@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeMDU</title>
+<style>
+:root {
+  --bg:#f4f6f6; --panel:#ffffff; --ink:#182124; --mute:#637075; --line:#dce2e3;
+  --accent:#0d6b70; --accent-ink:#ffffff; --accent-soft:#dcefef;
+  --warn:#a8470f; --bad:#b3261e; --ok:#2b7a4b;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#161c1e; --panel:#1f2729; --ink:#e7eced; --mute:#8f9a9e; --line:#2f393c;
+          --accent:#56b8bd; --accent-ink:#06191a; --accent-soft:#1d3a3c; --warn:#e69a62; --bad:#f08a82; --ok:#6cc58f; }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+       background: var(--bg); color: var(--ink); display: flex; flex-direction: column;
+       -webkit-font-smoothing: antialiased; user-select: none; }
+button, select { font: inherit; color: inherit; }
+button { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.danger { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 5px 8px; min-width: 220px; }
+
+header { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header .spacer { flex: 1; }
+#status { color: var(--mute); }
+#status.live { color: var(--ok); font-weight: 600; }
+
+main { flex: 1; min-height: 0; display: grid; grid-template-columns: 290px 1fr; }
+aside { border-right: 1px solid var(--line); padding: 14px; overflow: auto; background: var(--panel); }
+#props { padding: 6px 18px 18px; overflow: auto; }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40%; } }
+
+h2 { font-size: 13px; margin: 0 0 6px; font-weight: 650; }
+.device { margin-bottom: 18px; }
+.device .name { font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+.device .meta { color: var(--mute); }
+
+.action { border-top: 1px solid var(--line); padding: 10px 0; display: grid; gap: 6px; }
+.action label { display: block; }
+.action .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+.group { margin-top: 14px; }
+.group h2 { color: var(--mute); font-weight: 600; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.prop { display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.prop .label { flex: 1; min-width: 0; }
+.prop .value { font-variant-numeric: tabular-nums; text-align: right; user-select: text; }
+.prop .value.err { color: var(--bad); }
+.meter { width: 90px; height: 6px; border-radius: 3px; background: var(--accent-soft); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.pill { padding: 1px 9px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.pill.off { background: transparent; border: 1px solid var(--line); color: var(--mute); font-weight: 400; }
+
+.empty { max-width: 460px; margin: 12vh auto 0; text-align: center; color: var(--mute); }
+.empty h1 { color: var(--ink); font-size: 22px; letter-spacing: -.01em; margin: 0 0 8px; }
+.warn { margin-top: 18px; padding: 10px 12px; border: 1px solid var(--warn); border-radius: 8px; color: var(--warn); text-align: left; }
+
+footer { border-top: 1px solid var(--line); background: var(--panel); }
+footer summary { padding: 6px 14px; cursor: pointer; color: var(--mute); }
+#log { max-height: 130px; overflow: auto; padding: 0 14px 8px; user-select: text; }
+#log div { padding: 1px 0; color: var(--mute); }
+#log .bad { color: var(--bad); }
+#log .ok { color: var(--ok); }
+
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); max-width: 380px; padding: 18px; }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog p { margin: 0 0 14px; }
+dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
+</style>
+</head>
+<body>
+<header>
+  <select id="port" aria-label="Serial port"></select>
+  <button id="refresh" title="Rescan serial ports">Rescan</button>
+  <button id="connect" class="primary">Connect</button>
+  <button id="disconnect" hidden>Disconnect</button>
+  <span class="spacer"></span>
+  <span id="status">Not connected</span>
+  <button id="copy" hidden>Copy report</button>
+</header>
+
+<main>
+  <aside id="side" hidden>
+    <div class="device">
+      <div class="name" id="devname"></div>
+      <div class="meta" id="devmeta"></div>
+    </div>
+    <h2>Actions</h2>
+    <div id="actions"></div>
+  </aside>
+  <section id="props">
+    <div class="empty" id="empty">
+      <h1>Connect to a Miele appliance</h1>
+      <p>Attach your FreeMDU adapter to the appliance's diagnostic interface, plug it into this Mac, choose its port above and select Connect.</p>
+      <div class="warn">FreeMDU is experimental. Actions can permanently damage an appliance, and the control board is usually not isolated from mains voltage. Proceed at your own risk.</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <details open>
+    <summary>Activity</summary>
+    <div id="log"></div>
+  </details>
+</footer>
+
+<dialog id="confirm">
+  <p id="confirm-text"></p>
+  <div class="row"><button id="confirm-no">Cancel</button><button id="confirm-yes" class="danger">Run action</button></div>
+</dialog>
+
+<script>
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+const $ = (s) => document.querySelector(s);
+
+let info = null;
+let cells = {};      // property id -> {value, meter}
+let latest = {};     // property id -> last payload
+
+function log(msg, cls = "") {
+  const d = document.createElement("div");
+  d.className = cls;
+  d.textContent = new Date().toLocaleTimeString() + "  " + msg;
+  const box = $("#log");
+  box.append(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+function setStatus(text, live = false) {
+  const s = $("#status");
+  s.textContent = text;
+  s.classList.toggle("live", live);
+}
+
+async function refreshPorts() {
+  const ports = await invoke("list_ports");
+  const sel = $("#port");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  if (!ports.length) sel.append(new Option("No adapter found", ""));
+  for (const p of ports) sel.append(new Option(p.replace("/dev/", ""), p));
+  if (ports.includes(prev)) sel.value = prev;
+  $("#connect").disabled = !sel.value;
+}
+
+function fmtDuration(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return (h ? h + " h " : "") + (h || m ? String(m).padStart(h ? 2 : 1, "0") + " min " : "") + String(r).padStart(h || m ? 2 : 1, "0") + " s";
+}
+
+const row_of = (el) => el.closest(".prop");
+
+function render(cell, prop, v) {
+  const unit = prop.unit ? " " + prop.unit : "";
+  const el = cell.value;
+  el.className = "value";
+  cell.meter.hidden = true;
+  switch (v.t) {
+    case "bool":
+      el.innerHTML = "";
+      const pill = document.createElement("span");
+      pill.className = "pill" + (v.v ? "" : " off");
+      pill.textContent = v.v ? "Yes" : "No";
+      el.append(pill);
+      break;
+    case "number": el.textContent = v.v.toLocaleString() + unit; break;
+    case "sensor": {
+      const [cur, target] = v.v;
+      el.textContent = cur.toLocaleString() + " of " + target.toLocaleString() + unit;
+      cell.meter.hidden = false;
+      cell.meter.firstChild.style.width = Math.max(0, Math.min(100, target ? (cur / target) * 100 : 0)) + "%";
+      break;
+    }
+    case "duration": el.textContent = fmtDuration(v.v); break;
+    case "fault_ok": row_of(el).hidden = true; el.textContent = ""; break;
+    case "fault": {
+      row_of(el).hidden = false;
+      el.className = "value err";
+      const when = v.count ? ` (occurred ${v.count} ${v.count === 1 ? "time" : "times"}, last at ${v.hours} h)` : "";
+      el.textContent = (v.state === "active" ? "Active" : "Stored") + when;
+      break;
+    }
+    case "error": el.className = "value err"; el.textContent = "Read failed"; el.title = v.v; break;
+    default: el.textContent = String(v.v) + unit;
+  }
+}
+
+const TITLES = { General: "General information", Fault: "Faults", Operation: "Operating state", Io: "Inputs and outputs" };
+
+function buildProperties() {
+  const host = $("#props");
+  host.innerHTML = "";
+  cells = {};
+  const groups = new Map();
+  for (const p of info.properties) {
+    if (!groups.has(p.kind)) groups.set(p.kind, []);
+    groups.get(p.kind).push(p);
+  }
+  for (const [kind, props] of groups) {
+    const g = document.createElement("div");
+    g.className = "group";
+    g.innerHTML = "<h2></h2>";
+    g.firstChild.textContent = TITLES[kind] || kind;
+    for (const p of props) {
+      const row = document.createElement("div");
+      row.className = "prop";
+      row.innerHTML = '<div class="label"></div><div class="meter" hidden><i></i></div><div class="value">…</div>';
+      row.querySelector(".label").textContent = p.name;
+      if (p.kind === "Fault") row.hidden = true;
+      cells[p.id] = { value: row.querySelector(".value"), meter: row.querySelector(".meter") };
+      g.append(row);
+    }
+    host.append(g);
+  }
+}
+
+function buildActions() {
+  const host = $("#actions");
+  host.innerHTML = "";
+  if (!info.actions.length) host.textContent = "This device has no actions.";
+  for (const a of info.actions) {
+    const box = document.createElement("div");
+    box.className = "action";
+    const title = document.createElement("strong");
+    title.textContent = a.name;
+    box.append(title);
+    const row = document.createElement("div");
+    row.className = "row";
+    let read = () => null;
+    if (a.params && a.params.type === "enum") {
+      const sel = document.createElement("select");
+      sel.style.minWidth = "0";
+      for (const o of a.params.options) sel.append(new Option(o, o));
+      row.append(sel);
+      read = () => sel.value;
+    } else if (a.params && a.params.type === "flags") {
+      const wrap = document.createElement("div");
+      for (const o of a.params.options) {
+        const l = document.createElement("label");
+        const c = document.createElement("input");
+        c.type = "checkbox"; c.value = o;
+        l.append(c, " " + o);
+        wrap.append(l);
+      }
+      box.append(wrap);
+      // Flag combinations are sent as "A | B" (bitflags text format).
+      read = () => [...wrap.querySelectorAll("input:checked")].map((c) => c.value).join(" | ");
+    }
+    const run = document.createElement("button");
+    run.textContent = "Run";
+    run.onclick = () => confirmThenRun(a, read());
+    row.append(run);
+    box.append(row);
+    host.append(box);
+  }
+}
+
+function confirmThenRun(a, param) {
+  const dlg = $("#confirm");
+  $("#confirm-text").textContent = `Run "${a.name}"${param ? " (" + param + ")" : ""} on the connected appliance? This can change its state and cannot be undone from here.`;
+  $("#confirm-no").onclick = () => dlg.close();
+  $("#confirm-yes").onclick = async () => {
+    dlg.close();
+    try {
+      await invoke("trigger_action", { id: a.id, param: param === null ? null : param });
+      log(`Ran "${a.name}"`, "ok");
+    } catch (e) {
+      log(`"${a.name}" failed: ${e}`, "bad");
+    }
+  };
+  dlg.showModal();
+}
+
+const EMPTY_HTML = $("#empty").innerHTML;
+
+function setMode(mode) {
+  const idle = mode === "idle", live = mode === "live";
+  $("#connect").hidden = !idle;
+  $("#disconnect").hidden = idle;
+  $("#copy").hidden = !live;
+  $("#port").disabled = !idle;
+  $("#refresh").disabled = !idle;
+  $("#side").hidden = !live;
+  if (!live) {
+    info = null; cells = {}; latest = {};
+    $("#props").innerHTML = "";
+    $("#props").append($("#empty"));
+    $("#empty").innerHTML = mode === "waiting"
+      ? "<h1>Waiting for the appliance</h1><p>The port is open. Attach the adapter to the appliance's diagnostic interface. FreeMDU keeps retrying and reconnects automatically.</p>"
+      : EMPTY_HTML;
+  }
+  setStatus(idle ? "Not connected" : live ? "Connected" : "Waiting for appliance…", live);
+}
+
+$("#connect").onclick = async () => {
+  const path = $("#port").value;
+  if (!path) return;
+  $("#connect").disabled = true;
+  try {
+    await invoke("open_port", { path });
+    log(`Opened ${path}`, "ok");
+    setMode("waiting");
+  } catch (e) {
+    log(String(e), "bad");
+  }
+  $("#connect").disabled = false;
+};
+
+$("#disconnect").onclick = async () => {
+  await invoke("close_port");
+  log("Disconnected");
+  setMode("idle");
+  refreshPorts();
+};
+
+$("#refresh").onclick = refreshPorts;
+
+$("#copy").onclick = async () => {
+  if (!info) return;
+  const lines = [`${info.kind}, software ID ${info.software_id}`];
+  for (const p of info.properties) {
+    const cell = cells[p.id];
+    if (cell && !cell.value.closest(".prop").hidden) lines.push(`${p.name}: ${cell.value.textContent}`);
+  }
+  await navigator.clipboard.writeText(lines.join("\n"));
+  log("Report copied to clipboard");
+};
+
+listen("connected", (e) => {
+  info = e.payload;
+  $("#devname").textContent = info.kind;
+  $("#devmeta").textContent = "Software ID " + info.software_id;
+  buildProperties();
+  buildActions();
+  setMode("live");
+  $("#devname").textContent = info.kind;
+  $("#devmeta").textContent = "Software ID " + info.software_id;
+  log(`Appliance connected: ${info.kind}, software ID ${info.software_id}`, "ok");
+});
+
+listen("values", (e) => {
+  if (!info) return;
+  latest = { ...latest, ...e.payload };
+  for (const p of info.properties) {
+    const v = e.payload[p.id];
+    if (v && cells[p.id]) render(cells[p.id], p, v);
+  }
+});
+
+listen("device_lost", (e) => {
+  log(e.payload || "Lost contact with the appliance", "bad");
+  setMode("waiting");
+});
+
+refreshPorts();
+setInterval(() => { if (!$("#connect").hidden) refreshPorts(); }, 4000);
+</script>
+</body>
+</html>

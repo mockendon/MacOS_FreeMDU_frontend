@@ -1,0 +1,23 @@
+[package]
+name = "freemdu-mac"
+version = "0.1.0"
+edition = "2021"
+description = "Native macOS front end for FreeMDU (Miele optical diagnostic interface)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde_json = "1"
+# Git master: its API (string action params, Date/Fault values) is newer than crates.io 0.1.0.
+# For reproducible builds, add `rev = "<commit>"`.
+freemdu = { git = "https://github.com/medusalix/FreeMDU", features = ["native-serial"] }
+tokio = { version = "1", features = ["rt", "time", "sync", "net", "io-util", "macros"] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
